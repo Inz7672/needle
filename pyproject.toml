@@ -10,13 +10,14 @@ dependencies = [
     "numpy",
     "jax",
     "jaxlib",
-    "flax",
+    "flax>=0.12.8",
     "optax",
     "sentencepiece",
 ]
 
 [project.optional-dependencies]
 gpu = ["jax[cuda12]"]
+test = ["pytest", "pydantic"]
 
 [project.scripts]
 needle = "needle.cli:main"
@@ -31,3 +32,7 @@ include = ["needle*"]
 [build-system]
 requires = ["setuptools>=68.0"]
 build-backend = "setuptools.build_meta"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["slow: end-to-end JAX build/finetune tests (init a tiny model)"]

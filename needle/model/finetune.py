@@ -215,6 +215,7 @@ def finetune_local(args):
         data_path = augment_jsonl(data_path, args.generate, model=getattr(args, "model", None))
 
     params, config = load_checkpoint(base_path)
+    params = jax.device_put(params)
     tokenizer = get_tokenizer(config.vocab_size)
     seqs, masks = load_jsonl(data_path, tokenizer, args.max_len)
     if len(seqs) == 0:
