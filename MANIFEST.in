@@ -1,0 +1,3 @@
+include README.md LICENSE
+recursive-include needle/model *.model *.vocab
+include needle/agent/index.html

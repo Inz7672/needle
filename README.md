@@ -11,7 +11,7 @@ Needle 2 is an open 45M-parameter model for tool calling, device use and structu
 - **Tool retrieval**: declare a large catalogue and a built-in retrieval head renders only the top five tools per turn, with the grammar constrained to that subset.
 - **Bounded memory**: a 256-token sliding window with the tools pinned as KV sinks, so total memory stays near 28MB no matter how long the conversation runs.
 
-Weights on: [github.com/cactus-compute/needle](Cactus-Compute/needle2).
+Weights: [huggingface.co/Cactus-Compute/needle2](https://huggingface.co/Cactus-Compute/needle2) &middot; source: [github.com/cactus-compute/needle](https://github.com/cactus-compute/needle).
 
 ![Size-quality frontier: mobile-class and below](assets/frontier.png)
 
@@ -243,7 +243,28 @@ The `confidence` field is the minimum of two signals: a calibrated post-hoc head
 
 ## Fine-tuning
 
-Needle is open and trainable end to end. Fine-tune it on your own tools and domains, then export to a `.cact` and ship it like the base model. See the [needle repo](https://github.com/cactus-compute/needle) for training and export.
+Needle fine-tunes with LoRA on the frozen base and merges the adapter at export, so a run is cheap and the adapter is tiny. Your data is a JSONL of tool-call examples, one per line: `{"query": ..., "tools": [...], "answers": [{"name": ..., "arguments": {...}}], "reasoning": "..."}`.
+
+```sh
+# optionally synthesize training data first (needs OPENROUTER_API_KEY)
+needle generate-data --tools my_tools.json --num-samples 500 --output data.jsonl
+
+# LoRA fine-tune; --generate N expands your set with more examples before training
+needle finetune data.jsonl --epochs 3 --generate 300
+
+# merge the adapter into the base and export a tuned .cact
+needle build checkpoints/needle2.pkl --lora checkpoints/needle_lora.pkl --out my_needle.cact
+```
+
+The engine binary is downloaded from Hugging Face and is weights-agnostic, so a tuned `.cact` runs on it directly - no recompilation:
+
+```python
+import needle
+agent = needle.Needle(weights="my_needle.cact", tools=[...])
+agent.run("...")
+```
+
+Set `NEEDLE_HF_REPO=<you>/<model>` and pass `--upload` to `needle build` to publish your tuned `.cact`. Try any model in the browser playground with `needle playground` (http://127.0.0.1:7860).
 
 ## Extraction
 

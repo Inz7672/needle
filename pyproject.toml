@@ -1,25 +1,21 @@
 [project]
-name = "needle"
-version = "0.1.0"
-requires-python = ">=3.11"
+name = "cactus-needle"
+version = "2.0.0"
+description = "A 14MB foundation tool-calling model for tiny devices: inference, LoRA finetuning, and build."
+requires-python = ">=3.9"
+readme = "README.md"
+license = { text = "Apache-2.0" }
 dependencies = [
+    "huggingface_hub",
+    "numpy",
     "jax",
     "jaxlib",
     "flax",
     "optax",
-    "datasets",
-    "huggingface_hub",
-    "transformers",
-    "wandb",
     "sentencepiece",
-    "scipy",
-    "gcsfs",
-    "tqdm",
-    "google-genai",
 ]
 
 [project.optional-dependencies]
-tpu = ["jax[tpu]"]
 gpu = ["jax[cuda12]"]
 
 [project.scripts]
@@ -27,6 +23,10 @@ needle = "needle.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["needle*"]
+
+[tool.setuptools.package-data]
+"needle.model" = ["*.model", "*.vocab"]
+"needle.agent" = ["index.html"]
 
 [build-system]
 requires = ["setuptools>=68.0"]
