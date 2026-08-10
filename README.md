@@ -43,7 +43,7 @@ def get_weather(city: str):
     return {"city": city, "temp_c": 27, "sky": "clear"}
 
 agent = needle.Needle(tools=[get_weather])
-print(agent.run("what's it like in Lagos right now?")["reasoning"])
+print(agent.run("what's it like in Lagos right now?"))
 ```
 
 **Medium**: describe each argument and offer choices. Needle reads a Google-style `Args:` block for per-parameter descriptions; a default makes an argument optional; a `Literal` becomes a fixed set the model must choose from (it cannot emit anything else).
