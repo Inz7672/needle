@@ -1,7 +1,9 @@
+import concurrent.futures
 import json
 import os
 import pickle
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 
@@ -18,24 +20,28 @@ OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 DEFAULT_MODEL = "deepseek/deepseek-v4-flash"
 
 _GEN_SYSTEM = (
-    "You generate training data for a tool-calling model. Given a set of tool "
-    "schemas, produce realistic, diverse user requests and the exact tool calls "
-    "that satisfy them. Return only JSON."
+    "You generate training data for a tool-calling and extraction model. Given a "
+    "set of tool or record schemas, produce realistic, diverse inputs paired with "
+    "the exact calls that satisfy them. Return only JSON."
 )
 
-_GEN_TEMPLATE = """Tools available (JSON schemas):
+_GEN_TEMPLATE = """Schemas available (JSON):
 {tools}
 
 Produce {n} varied examples as a JSON array. Each element is an object:
-  {{"query": "<a natural user request>",
-    "reasoning": "<one short line deriving each argument from the query>",
-    "answers": [{{"name": "<tool name>", "arguments": {{...}}}}]}}
+  {{"query": "<a natural user request to act on, or a passage of text to extract from>",
+    "reasoning": "<one short line deriving each argument from its source span in the query>",
+    "answers": [{{"name": "<schema name>", "arguments": {{...}}}}]}}
 
 Rules:
-- Use only the tools above; arguments must match their schemas exactly.
-- Cover single-call, multi-call, and about {refusals} off-topic requests that no
-  tool can serve (for those, "answers" is []).
-- Vary phrasing, values, and which tools are used. Return ONLY the JSON array."""
+- Use only the schemas above; arguments must match them exactly and contain only
+  values evidenced in the query.
+- For an action tool the query is a command. For a record/extraction schema (its
+  fields describe an entity), the query is a natural passage that contains those
+  fields and the call extracts them.
+- Cover single-call, multi-call, and about {refusals} off-topic inputs that no
+  schema can serve (for those, "answers" is []).
+- Vary phrasing, values, and which schemas are used. Return ONLY the JSON array."""
 
 
 def _openrouter(messages, model, api_key, temperature=0.9):
@@ -76,6 +82,59 @@ def generate_examples(tools, n=25, model=DEFAULT_MODEL, api_key=None, refusals=3
     return rows
 
 
+def _dedup_key(example):
+    answers = example.get("answers", example.get("function_calls", []))
+    return (example.get("query", "").strip().lower(), json.dumps(answers, sort_keys=True))
+
+
+def generate_dataset(tools, num_samples, model=DEFAULT_MODEL, batch_size=25,
+                     api_key=None, workers=8, progress=None):
+    api_key = api_key or os.environ.get("OPENROUTER_API_KEY")
+    if not api_key:
+        raise RuntimeError("set OPENROUTER_API_KEY to generate data")
+
+    target = int(num_samples * 1.3)
+    max_submissions = max(1, target // batch_size * 3)
+    seen, rows, failed, submitted = set(), [], 0, 0
+    pool = ThreadPoolExecutor(max_workers=workers)
+    pending = set()
+
+    def _submit():
+        nonlocal submitted
+        pending.add(pool.submit(generate_examples, tools, batch_size,
+                                model=model, api_key=api_key))
+        submitted += 1
+
+    for _ in range(min(workers, max(1, -(-target // batch_size)))):
+        _submit()
+
+    try:
+        while pending and len(rows) < num_samples:
+            done, pending = concurrent.futures.wait(
+                pending, return_when=concurrent.futures.FIRST_COMPLETED)
+            for future in done:
+                try:
+                    for example in future.result():
+                        key = _dedup_key(example)
+                        if key not in seen:
+                            seen.add(key)
+                            rows.append(example)
+                except Exception as exc:
+                    failed += 1
+                    print(f"  batch failed: {exc}", flush=True)
+                if len(rows) < num_samples and submitted < max_submissions:
+                    _submit()
+            done_count = min(len(rows), num_samples)
+            if progress:
+                progress(done_count, num_samples)
+            else:
+                print(f"  generated {done_count}/{num_samples} (failed={failed})", flush=True)
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
+
+    return rows[:num_samples]
+
+
 def _collect_tools(examples):
     seen, tools = set(), []
     for example in examples:
@@ -87,42 +146,38 @@ def _collect_tools(examples):
     return tools
 
 
-def augment_jsonl(path, num_samples, model=DEFAULT_MODEL, batch_size=25, out_path=None):
+def augment_jsonl(path, num_samples, model=DEFAULT_MODEL, batch_size=25, out_path=None, workers=8):
     with open(path) as handle:
         examples = [json.loads(line) for line in handle if line.strip()]
     tools = _collect_tools(examples)
     if not tools:
         raise RuntimeError("no tool schemas found in " + path)
     out_path = out_path or path.replace(".jsonl", "") + ".augmented.jsonl"
-    generated = []
-    while len(generated) < num_samples:
-        generated.extend(generate_examples(tools, n=min(batch_size, num_samples - len(generated)),
-                                           model=model or DEFAULT_MODEL))
-        print(f"  generated {len(generated)}/{num_samples}")
+    generated = generate_dataset(tools, num_samples, model=model or DEFAULT_MODEL,
+                                 batch_size=batch_size, workers=workers)
     with open(out_path, "w") as handle:
-        for example in examples + generated[:num_samples]:
+        for example in examples + generated:
             handle.write(json.dumps(example) + "\n")
-    print(f"wrote {len(examples) + min(len(generated), num_samples)} examples -> {out_path}")
+    print(f"wrote {len(examples) + len(generated)} examples -> {out_path}")
     return out_path
 
 
 def generate_main(args):
     model = args.model or DEFAULT_MODEL
+    workers = getattr(args, "workers", 8)
     if args.tools:
         with open(args.tools) as handle:
             tools = json.load(handle)
-        rows, out = [], args.output or "needle_data.jsonl"
-        while len(rows) < args.num_samples:
-            rows.extend(generate_examples(tools, n=min(args.batch_size, args.num_samples - len(rows)),
-                                          model=model))
-            print(f"  generated {len(rows)}/{args.num_samples}")
+        out = args.output or "needle_data.jsonl"
+        rows = generate_dataset(tools, args.num_samples, model=model,
+                                batch_size=args.batch_size, workers=workers)
         with open(out, "w") as handle:
-            for row in rows[:args.num_samples]:
+            for row in rows:
                 handle.write(json.dumps(row) + "\n")
-        print(f"wrote {min(len(rows), args.num_samples)} examples -> {out}")
+        print(f"wrote {len(rows)} examples -> {out}")
     elif args.augment:
         augment_jsonl(args.augment, args.num_samples, model=model,
-                      batch_size=args.batch_size, out_path=args.output)
+                      batch_size=args.batch_size, out_path=args.output, workers=workers)
     else:
         raise SystemExit("pass --tools <schemas.json> or --augment <data.jsonl>")
 
@@ -212,7 +267,8 @@ def finetune_local(args):
     base_path = args.checkpoint or DEFAULT_BASE
     data_path = args.jsonl_path
     if getattr(args, "generate", 0):
-        data_path = augment_jsonl(data_path, args.generate, model=getattr(args, "model", None))
+        data_path = augment_jsonl(data_path, args.generate, model=getattr(args, "model", None),
+                                  workers=getattr(args, "workers", 8))
 
     params, config = load_checkpoint(base_path)
     params = jax.device_put(params)

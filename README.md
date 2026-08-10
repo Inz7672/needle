@@ -2,10 +2,11 @@
 
 # Needle 2
 
-Needle 2 is an open 45M-parameter model for tool calling, device use and structured extraction. The whole model is a single 14MB binary that runs a full session in 28MB of RAM. It is built on our Simple Attention Network findings, compressed to CQ2-bit with Cactus Quants, and baked into its own engine. On the benchmarks below, Needle 2 trades wins with other small models like FunctionGemma 270M, LFM2.5 230M and Apple FM, at 5x to 70x smaller, and 2 bits against their f16. Needle hits 500 tokens/sec decode speed on a Raspberry Pi 5, between 400-1,500 tokens/sec on VR devices like Meta Quest 3S and Apple Vision Pro, and ranges 300-700 on sub-$200 phones such as the Samsung A-Series. With a peak session RAM around 28MB, Needle reaches microcontrollers like the ESP32-P4; others have reported running it on an ESP32-S3 in about 11MB.
+Needle 2 is an open 45M-parameter model for tool calling, device use and structured extraction. The whole model is a single 14MB binary that runs a full session in about 28MB of RAM. It is built on our Simple Attention Network findings, compressed to CQ2-bit with Cactus Quants, and baked into its own engine. On the benchmarks below, Needle 2 trades wins with other small models like FunctionGemma 270M, LFM2.5 230M and Apple FM, at 5x to 70x smaller, and 2 bits against their f16.
 
-- **Self-contained**: model baked into the binary, no runtime, no downloads, no network.
-- **Runs everywhere**: ARM64, x86-64, ARMv7, RISC-V, and WebAssembly, on Apple, Windows, Linux, Android, Raspberry Pi.
+This repository is the Python package: inference, LoRA fine-tuning, and export. `pip install cactus-needle`, describe your tools, and call them from Python. The inference engine is fetched once from Hugging Face and cached; there is nothing else to build.
+
+- **Self-contained**: weights baked into a single 14MB engine; no separate model files to manage, and inference does no network.
 - **Simple contract**: tool calls come back as structured data, text in, JSON out; a byte-level grammar compiled from your schemas constrains every token.
 - **Confidence-gated**: every response carries a calibrated confidence score from a learned head; set a threshold, act above it, escalate below it.
 - **Tool retrieval**: declare a large catalogue and a built-in retrieval head renders only the top five tools per turn, with the grammar constrained to that subset.
@@ -23,7 +24,7 @@ Needle 2 is a Simple Attention Network, our dense small-model recipe: a Hadamard
 
 Each block carries its update rule. Here x̂ is the RMS-normalised flattening of the four residual streams, H the orthonormal Walsh-Hadamard transform (a fixed matrix, applied in n log n time with no weights to read), (kₜ, vₜ) rows gathered from hashed n-gram tables, and P the doubly-stochastic normalisation of the routing logits A, computed by Sinkhorn iteration; a, b, g and all σ-gates are learned and input-dependent. Both attention and MLP residuals are sandwich-normed and gated, the engram sites fire at two layers, and decoding is constrained by a byte-level grammar compiled from the declared schemas.
 
-## Quickstart with Python
+## Quickstart
 
 ```sh
 pip install cactus-needle
@@ -95,7 +96,7 @@ invoice = needle.extract("Invoice from Acme Corp, $1,200.00, due 2026-09-01", In
 print(invoice.vendor, invoice.total)   # -> Acme Corp 1200.0
 ```
 
-**By hand** - the decorator just builds a JSON schema; you can pass that schema directly, which is exactly what Needle consumes. This is how you set descriptions and constraints without the decorator (and `tools.json` for the CLI is the same shape):
+**By hand** - the decorator just builds a JSON schema; you can pass that schema directly, which is exactly what Needle consumes. This is how you set descriptions and constraints without the decorator:
 
 ```python
 tools = [{
@@ -136,10 +137,20 @@ With a large catalogue, persist tool embeddings across runs with `needle.Needle(
   "reasoning": "'living room' -> room; 'dim' -> on true, brightness 30",
   "confidence": 0.94,
   "prefill_tps": 4300.0,
-  "decode_tps": 850.0,
-  "peak_ram_mb": 28.0
+  "decode_tps": 850.0
 }
 ```
+
+## Playground
+
+Try any model in the browser: pick a preset, edit the tools or prompt, and Run. Follow-up queries continue the same conversation.
+
+```sh
+needle playground                      # base model, http://127.0.0.1:7860
+needle playground --weights my.cact    # a tuned model
+```
+
+The server downloads and initializes the model before serving, so the first query is instant. The **Finetune on these tools** button runs the fine-tuning pipeline below from the UI and hands back a downloadable `.cact`.
 
 ## Behaviour
 
@@ -151,91 +162,45 @@ Needle solves every problem as a function call. The context declares what may be
 - After you execute a call, pass the result back as the next `complete()`. The model continues from it, and later arguments may depend on earlier results: `search_for_contact` first, then `send_instant_message` with the returned `contact_id`. A final step may answer in plain text from the results: `"type": "respond"` with empty `function_calls`.
 - A session shares one toolset. Later turns are bare queries against the same tools; `reset()` rewinds the conversation and keeps the tools loaded.
 
+## Extraction
+
+Extraction is not a separate mode - it is tool calling with one tool. Declare the record as the only schema and pass the content where the query goes; the returned call's `arguments` are the extracted fields. With one declared tool the grammar admits exactly one call of that name, so schema conformance is guaranteed rather than requested. Use the `extract()` helper for a typed result (shown in Quickstart), or pass a plain schema and read the call:
+
+```python
+receipt = [{
+    "name": "receipt",
+    "description": "A purchase receipt shared as text",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "merchant": {"type": "string"},
+            "total": {"type": "number"},
+            "currency": {"type": "string"},
+            "line_items": {"type": "array", "items": {"type": "object"}},
+        },
+        "required": ["merchant", "total"],
+    },
+}]
+agent = needle.Needle(tools=receipt)
+print(agent.complete("GreenMart receipt: oat milk 3.50, total 7.75 paid by visa")["function_calls"])
+# -> [{"name": "receipt", "arguments": {"merchant": "GreenMart", "total": 7.75}}]
+```
+
+Because it is the same operation, everything else applies unchanged: `confidence` gates the extraction, unsupported input returns the empty call `[]`, and fine-tuning uses the same data format (the record as the tool, the passage as the query).
+
 ## System facts
 
 An optional system turn carries environment state as facts, never instructions:
 
-```
-date: 2026-07-21 Tue 14:30; locale: en-US; device: phone; battery: 62%
-```
-
-Recognized keys are `date`, `locale`, `device`, `battery`, `network`, `location`, `user`, and `assistant`. The model resolves relative language against them: "tomorrow at 7" becomes an absolute time only when a `date:` fact licenses it, otherwise the human phrase passes through verbatim. `assistant:` declares the identity the model binds to. Pass the turn with `--system system.txt` on the CLI or `needle.Needle(tools=tools, system="date: ...")` in Python. Needle trains with and without the turn, so omitting it is safe; instructions placed there do not steer the model.
-
-## Deploy Needle
-
-Download the folder for your platform from the release:
-
-| your device | folder | command-line | library |
-| --- | --- | --- | --- |
-| Mac (Apple Silicon) | `macos-arm64` | `needle` | `libneedle.a` |
-| Linux x86-64 (PC, server, AMD) | `linux-x86_64` | `needle` | `libneedle.a` |
-| Linux ARM64 (Raspberry Pi, server) | `linux-arm64` | `needle` | `libneedle.a` |
-| Linux ARMv7 (32-bit) | `linux-armv7` | `needle` | `libneedle.a` |
-| Linux RISC-V | `linux-riscv64` | `needle` | `libneedle.a` |
-| Linux MIPS32el (Ingenic cameras, routers) | `linux-mipsel` | `needle` | `libneedle.a` |
-| Windows x64 | `windows-x86_64` | `needle.exe` | `libneedle.a` |
-| Windows ARM | `windows-arm64` | `needle.exe` | `libneedle.a` |
-| Android | `android-arm64` / `android-armv7` / `android-riscv64` | `needle` | `libneedle.a` |
-| iOS / watchOS / tvOS | `ios-arm64` / `watchos-arm64` / `tvos-arm64` | - | `libneedle.a` |
-| Browser / Node (WebAssembly) | `wasm` | - | `needle.js` + `needle.wasm` |
-
-To run it, use the command-line binary. On macOS, Linux, or Android:
-
-```sh
-# answer one query and exit
-./needle --tools tools.json --prompt "dim the living room to 30"
-
-# or an HTTP server on localhost:8080 (POST /complete {"input": "..."})
-./needle --tools tools.json --serve
-
-# with a large tool catalogue, persist tool embeddings across runs
-./needle --tools tools.json --tool-index tools.idx --serve
+```python
+agent = needle.Needle(tools=tools, system="date: 2026-07-21 Tue 14:30; locale: en-US; device: phone; battery: 62%")
 ```
 
-`tools.json` is a JSON array of the functions the assistant may call:
-
-```json
-[
-  {
-    "name": "set_lights",
-    "description": "Turn a room's lights on or off and set brightness",
-    "parameters": {
-      "type": "object",
-      "properties": {
-        "room": { "type": "string" },
-        "on": { "type": "boolean" },
-        "brightness": { "type": "integer", "description": "0 to 100" }
-      },
-      "required": ["room", "on"]
-    }
-  },
-  {
-    "name": "play_music",
-    "description": "Play music matching a mood, genre, or artist",
-    "parameters": {
-      "type": "object",
-      "properties": { "query": { "type": "string" } },
-      "required": ["query"]
-    }
-  },
-  {
-    "name": "send_message",
-    "description": "Text a contact",
-    "parameters": {
-      "type": "object",
-      "properties": {
-        "to": { "type": "string" },
-        "body": { "type": "string" }
-      },
-      "required": ["to", "body"]
-    }
-  }
-]
-```
+Recognized keys are `date`, `locale`, `device`, `battery`, `network`, `location`, `user`, and `assistant`. The model resolves relative language against them: "tomorrow at 7" becomes an absolute time only when a `date:` fact licenses it, otherwise the human phrase passes through verbatim. `assistant:` declares the identity the model binds to. Needle trains with and without the turn, so omitting it is safe; instructions placed there do not steer the model.
 
 ## Tool retrieval
 
-Five or fewer declared tools render directly. Above that, retrieval engages: at init every tool schema is embedded once by a built-in contrastive head, each turn embeds the query, and only the five highest-scoring tools enter the context, with the grammar rebuilt over just that subset. An unselected tool is unreachable, not merely unlikely. `--tool-index <path>` (CLI) or `tool_index_path` (Python) persists the embeddings on disk, keyed by a fingerprint over the schemas and the model; a matching fingerprint loads instantly, a changed schema re-embeds only what changed.
+Five or fewer declared tools render directly. Above that, retrieval engages: at init every tool schema is embedded once by a built-in contrastive head, each turn embeds the query, and only the five highest-scoring tools enter the context, with the grammar rebuilt over just that subset. An unselected tool is unreachable, not merely unlikely. `tool_index_path` persists the embeddings on disk, keyed by a fingerprint over the schemas and the model; a matching fingerprint loads instantly, a changed schema re-embeds only what changed.
 
 ## Confidence
 
@@ -243,60 +208,45 @@ The `confidence` field is the minimum of two signals: a calibrated post-hoc head
 
 ## Fine-tuning
 
-Needle fine-tunes with LoRA on the frozen base and merges the adapter at export, so a run is cheap and the adapter is tiny. Your data is a JSONL of tool-call examples, one per line: `{"query": ..., "tools": [...], "answers": [{"name": ..., "arguments": {...}}], "reasoning": "..."}`.
+Needle fine-tunes with LoRA on the frozen base and merges the adapter at export, so a run is cheap and the tuned model is still a single `.cact` that runs on the same engine. The workflow is: (optionally) synthesize data, LoRA fine-tune, then build a tuned `.cact`.
+
+**Data format.** A JSONL file, one example per line. `reasoning` is optional; an off-topic example has `answers: []`.
+
+```json
+{"query": "dim the kitchen to 10", "tools": [{"name": "set_lights", "parameters": {"type": "object", "properties": {"room": {"type": "string"}, "brightness": {"type": "integer"}}, "required": ["room"]}}], "answers": [{"name": "set_lights", "arguments": {"room": "kitchen", "brightness": 10}}], "reasoning": "'kitchen' -> room; 'dim to 10' -> brightness 10"}
+```
+
+**1. Synthesize data (optional).** Needs `OPENROUTER_API_KEY`. Seed from a tool schema file, or expand an existing set:
 
 ```sh
-# optionally synthesize training data first (needs OPENROUTER_API_KEY)
+export OPENROUTER_API_KEY=sk-or-...
 needle generate-data --tools my_tools.json --num-samples 500 --output data.jsonl
+needle generate-data --augment data.jsonl --num-samples 500      # expand an existing JSONL
+```
 
-# LoRA fine-tune; --generate N expands your set with more examples before training
-needle finetune data.jsonl --epochs 3 --generate 300
+**2. LoRA fine-tune.** The base checkpoint auto-downloads from Hugging Face if you do not pass `--checkpoint`. `--generate N` first synthesizes N more examples from the tools in your data (also needs `OPENROUTER_API_KEY`).
 
-# merge the adapter into the base and export a tuned .cact
+```sh
+needle finetune data.jsonl --epochs 3
+needle finetune data.jsonl --epochs 3 --generate 300 --lora-rank 16 --lora-alpha 32
+```
+
+Key options: `--lora-rank` (default 16), `--lora-alpha` (32), `--lr` (1e-4), `--batch-size` (16), `--max-len` (1024), `--checkpoint <base.pkl>`, `--out <adapter.pkl>`. The adapter is written to `checkpoints/needle_lora.pkl`.
+
+**3. Build a tuned `.cact`.** Merge the adapter into the base and quantize. The base auto-downloads if absent.
+
+```sh
 needle build checkpoints/needle2.pkl --lora checkpoints/needle_lora.pkl --out my_needle.cact
 ```
 
-The engine binary is downloaded from Hugging Face and is weights-agnostic, so a tuned `.cact` runs on it directly - no recompilation:
+Add `--bits 2` (default 4) for a smaller model, or set `NEEDLE_HF_REPO=<you>/<model>` and pass `--upload` to publish the `.cact`.
+
+**4. Run it.** The engine is weights-agnostic, so a tuned `.cact` runs on it directly - no recompilation:
 
 ```python
 import needle
 agent = needle.Needle(weights="my_needle.cact", tools=[...])
 agent.run("...")
-```
-
-Set `NEEDLE_HF_REPO=<you>/<model>` and pass `--upload` to `needle build` to publish your tuned `.cact`. Try any model in the browser playground with `needle playground` (http://127.0.0.1:7860).
-
-## Extraction
-
-Extraction is the same exchange as tool calling: declare the record schema as the only tool and pass the content as the prompt; the passage sits where the query sits, and the returned call's `arguments` are the extracted fields. With one declared tool the grammar admits exactly one call of that name, the `tool_choice` equivalent, so schema conformance is guaranteed rather than requested. There is no separate JSON mode.
-
-`schema.json` describes the record to extract:
-
-```json
-[
-  {
-    "name": "receipt",
-    "description": "A purchase receipt shared as text",
-    "parameters": {
-      "type": "object",
-      "properties": {
-        "merchant": { "type": "string" },
-        "total": { "type": "number" },
-        "currency": { "type": "string" },
-        "line_items": { "type": "array", "items": { "type": "object" } }
-      },
-      "required": ["merchant", "total"]
-    }
-  }
-]
-```
-
-```sh
-./needle --tools schema.json --prompt "GreenMart receipt: oat milk 3.50, total 7.75 paid by visa"
-```
-
-```json
-{ "type": "call", "function_calls": [ { "name": "receipt", "arguments": { "merchant": "GreenMart", "total": 7.75 } } ] }
 ```
 
 ## Citation

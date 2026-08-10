@@ -37,8 +37,6 @@ def _install_xla_log_filter():
         return
     _log_filter_installed = True
 
-    # 1. Dup the original stderr fd; rebind Python's sys.stderr to it so
-    #    all Python-level writes bypass the pipe.
     py_stderr_fd = os.dup(2)
     try:
         sys.stderr.flush()
@@ -126,14 +124,18 @@ def main():
                    help="Generate N extra examples via OpenRouter before training (0 = off)")
     p.add_argument("--model", type=str, default="deepseek/deepseek-v4-flash",
                    help="OpenRouter model for --generate")
+    p.add_argument("--workers", type=int, default=8,
+                   help="Concurrent OpenRouter requests when generating (default: 8)")
     p.add_argument("--checkpoint-dir", type=str, default="checkpoints")
     p.add_argument("--out", type=str, default=None, help="Output adapter path (.pkl)")
 
     p = sub.add_parser("generate-data", add_help=False)
     p.add_argument("--tools", type=str, default=None, help="Tool schemas JSON to seed generation")
     p.add_argument("--augment", type=str, default=None, help="Existing JSONL to expand")
-    p.add_argument("--num-samples", type=int, default=200)
+    p.add_argument("--num-samples", type=int, default=100)
     p.add_argument("--batch-size", type=int, default=25)
+    p.add_argument("--workers", type=int, default=16,
+                   help="Concurrent OpenRouter requests (default: 16)")
     p.add_argument("--model", type=str, default="deepseek/deepseek-v4-flash")
     p.add_argument("--output", type=str, default=None)
 
@@ -145,7 +147,8 @@ def main():
     p.add_argument("--bits", type=str, default=None, choices=["2", "4"])
 
     p = sub.add_parser("playground", add_help=False)
-    p.add_argument("--checkpoint", type=str, default=None)
+    p.add_argument("--weights", type=str, default=None,
+                   help="Tuned .cact to serve (defaults to the base model from HuggingFace)")
     p.add_argument("--port", type=int, default=7860)
     p.add_argument("--host", type=str, default="127.0.0.1")
 
@@ -168,5 +171,5 @@ def main():
         from .model.finetune import build_main
         build_main(args)
     elif args.command == "playground":
-        from .agent.server import main as ui_main
-        ui_main(args)
+        from .playground.server import main as playground_main
+        playground_main(args)

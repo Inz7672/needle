@@ -27,7 +27,7 @@ include = ["needle*"]
 
 [tool.setuptools.package-data]
 "needle.model" = ["*.model", "*.vocab"]
-"needle.agent" = ["index.html"]
+"needle.playground" = ["index.html", "app.js", "style.css"]
 
 [build-system]
 requires = ["setuptools>=68.0"]
