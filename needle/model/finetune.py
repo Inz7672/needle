@@ -257,12 +257,17 @@ def merge_lora(params, lora, scale):
     return unflatten_dict(flat)
 
 
-def finetune_local(args):
+def finetune_local(args, progress=None):
     import jax
     import jax.numpy as jnp
     import optax
     from .run import load_checkpoint
     from .architecture import SimpleAttentionNetwork
+
+    def emit(msg):
+        print(msg, flush=True)
+        if progress:
+            progress(msg)
 
     base_path = args.checkpoint or DEFAULT_BASE
     data_path = args.jsonl_path
@@ -276,13 +281,13 @@ def finetune_local(args):
     seqs, masks = load_jsonl(data_path, tokenizer, args.max_len)
     if len(seqs) == 0:
         raise SystemExit("no usable examples in " + data_path)
-    print(f"training on {len(seqs)} examples, seq_len {args.max_len}")
+    emit(f"training on {len(seqs)} examples, seq_len {args.max_len}")
 
     model = SimpleAttentionNetwork(config)
     paths = lora_target_paths(params)
     scale = args.lora_alpha / args.lora_rank
     lora = init_lora(params, paths, args.lora_rank, jax.random.PRNGKey(0))
-    print(f"LoRA rank {args.lora_rank} on {len(paths)} weight groups")
+    emit(f"LoRA rank {args.lora_rank} on {len(paths)} weight groups (compiling...)")
 
     optimizer = optax.adamw(args.lr)
     opt_state = optimizer.init(lora)
@@ -300,6 +305,10 @@ def finetune_local(args):
         return optax.apply_updates(lora, updates), opt_state, loss
 
     batch, count = args.batch_size, len(seqs)
+    steps_per_epoch = -(-count // batch)
+    total_steps = args.epochs * steps_per_epoch
+    every = max(1, total_steps // 50)
+    step_i = 0
     for epoch in range(args.epochs):
         order = np.random.permutation(count)
         last = 0.0
@@ -308,7 +317,10 @@ def finetune_local(args):
             lora, opt_state, loss = train_step(lora, opt_state,
                                                jnp.asarray(seqs[idx]), jnp.asarray(masks[idx]))
             last = float(loss)
-        print(f"epoch {epoch + 1}/{args.epochs}  loss {last:.4f}")
+            step_i += 1
+            if step_i % every == 0:
+                emit(f"epoch {epoch + 1}/{args.epochs}  step {step_i}/{total_steps}  loss {last:.4f}")
+        emit(f"epoch {epoch + 1}/{args.epochs}  loss {last:.4f}")
 
     os.makedirs(args.checkpoint_dir, exist_ok=True)
     out = args.out or os.path.join(args.checkpoint_dir, "needle_lora.pkl")

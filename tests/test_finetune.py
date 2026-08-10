@@ -37,8 +37,11 @@ def test_finetune_writes_adapter(tiny_checkpoint, tmp_path):
     data = tmp_path / "data.jsonl"
     _write_data(data)
     out = tmp_path / "adapter.pkl"
-    finetune_local(_finetune_args(data, tiny_checkpoint, out, tmp_path / "ck"))
+    progress = []
+    finetune_local(_finetune_args(data, tiny_checkpoint, out, tmp_path / "ck"),
+                   progress=progress.append)
 
+    assert any("loss" in m for m in progress)
     assert out.exists()
     with open(out, "rb") as handle:
         adapter = pickle.load(handle)

@@ -28,11 +28,13 @@ class Engine:
         self.tools_json = "[]"
 
     def complete(self, tools_json, query):
-        from .. import Needle
+        from .. import Needle, _lib
         with self.lock:
             if self.agent is None or tools_json != self.tools_json:
                 self.agent = Needle(tools=tools_json, weights=self.weights)
                 self.tools_json = tools_json
+            else:
+                _lib().needle_reset()
             return self.agent.complete(query)
 
     def reset(self):
@@ -55,6 +57,12 @@ class Engine:
 _FT = {"running": False, "step": "", "log": [], "checkpoint": None, "error": None}
 
 
+def _log(msg):
+    _FT["log"].append(msg)
+    if len(_FT["log"]) > 100:
+        del _FT["log"][:-100]
+
+
 def _finetune_worker(tools_json, api_key, samples, engine):
     import types
     try:
@@ -64,7 +72,7 @@ def _finetune_worker(tools_json, api_key, samples, engine):
         tools = json.loads(tools_json)
         rows = generate_dataset(
             tools, samples, api_key=api_key,
-            progress=lambda done, total: _FT["log"].append(f"generated {done}/{total}"))
+            progress=lambda done, total: _log(f"generated {done}/{total}"))
         data_path = str(_DOWNLOADS / "needle_playground_data.jsonl")
         with open(data_path, "w") as handle:
             for row in rows:
@@ -75,7 +83,7 @@ def _finetune_worker(tools_json, api_key, samples, engine):
         finetune_local(types.SimpleNamespace(
             jsonl_path=data_path, checkpoint=None, epochs=3, batch_size=16, lr=1e-4,
             lora_rank=16, lora_alpha=32.0, max_len=1024, generate=0, model=None,
-            checkpoint_dir=str(_DOWNLOADS), out=adapter))
+            checkpoint_dir=str(_DOWNLOADS), out=adapter), progress=_log)
 
         _FT["step"] = "building"
         out = str(_DOWNLOADS / "needle_tuned.cact")
