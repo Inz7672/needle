@@ -5,6 +5,11 @@ import zipfile
 
 HF_REPO = "Cactus-Compute/needle2"
 
+# Names the engine wheel fetched from HF_REPO. Decoupled from the package
+# __version__ (which the release workflow bumps every week): bump this only
+# when new engine wheels are actually uploaded to HF_REPO.
+ENGINE_VERSION = "2.0.0"
+
 
 def _lib_name():
     if sys.platform == "darwin":

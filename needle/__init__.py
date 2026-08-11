@@ -16,12 +16,12 @@ def _library_path():
     local = os.path.join(here, fetch._lib_name())
     if os.path.exists(local):
         return local
-    cache = os.path.join(os.path.expanduser("~"), ".cache", "cactus-needle", __version__)
+    cache = os.path.join(os.path.expanduser("~"), ".cache", "cactus-needle", fetch.ENGINE_VERSION)
     cached = os.path.join(cache, fetch._lib_name())
     if os.path.exists(cached):
         return cached
     os.makedirs(cache, exist_ok=True)
-    return fetch.fetch_library(__version__, cache)
+    return fetch.fetch_library(fetch.ENGINE_VERSION, cache)
 
 
 _lib_handle = None
