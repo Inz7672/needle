@@ -79,10 +79,11 @@ class Needle:
 
     def run(self, query, max_steps=8, max_new_tokens=256):
         response = self.complete(query, max_new_tokens)
+        executed = []
         for _ in range(max_steps):
             calls = response.get("function_calls") or []
             if response.get("type") != "call" or not calls:
-                return response
+                break
             results = []
             for call in calls:
                 fn = self._functions.get(call.get("name"))
@@ -93,7 +94,9 @@ class Needle:
                     results.append(fn(**(call.get("arguments") or {})))
                 except Exception as exc:
                     results.append({"error": str(exc)})
+            executed.extend(results)
             response = self.complete(json.dumps(results, default=_jsonable), max_new_tokens)
+        response["results"] = executed
         return response
 
     def extract(self, text, schema, max_new_tokens=256):

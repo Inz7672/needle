@@ -19,7 +19,7 @@ pip install cactus-needle
   - `system`: optional environment-facts string (see System facts).
   - `weights`: path to a tuned `.cact` to load instead of the baked base model.
   - `tool_index_path`: path to persist tool embeddings when you declare many tools.
-- `agent.run(query, max_steps=8, max_new_tokens=256) -> dict` - full agentic loop: model picks calls, Needle executes your Python functions, feeds results back, returns the final response.
+- `agent.run(query, max_steps=8, max_new_tokens=256) -> dict` - full agentic loop: model picks calls, Needle executes your Python functions, feeds results back, returns the final response with the executed tool results attached as `results`.
 - `agent.complete(text, max_new_tokens=256) -> dict` - one turn; you execute the call and feed the result back yourself via the next `complete(...)`.
 - `agent.reset()` - rewind the conversation, keep the tools loaded.
 - `needle.tool` - decorator that turns a function into a tool schema (attached as `fn._needle_tool`).
@@ -98,7 +98,7 @@ Every turn returns one dict:
 }
 ```
 
-- `type` is `"call"` when there are tool calls, `"respond"` for a final plain-text answer from results, `"refuse"`/empty `function_calls` for off-topic input.
+- `type` is `"call"` when the model wants tool calls (empty `function_calls` is the refusal for off-topic input), `"respond"` when the loop is finished; the answer is the tool results, no free text is generated.
 - `function_calls` is a list of `{"name", "arguments"}`. Read `arguments` directly; it is grammar-guaranteed to match your schema.
 - `reasoning` is a short unconstrained derivation of each argument from its source span.
 - `confidence` is a calibrated score in [0,1] (see Confidence gating).

@@ -32,7 +32,7 @@ pip install cactus-needle
 
 Needle reads your tool descriptions to decide what to call and how to fill arguments, so describing them well is the whole game. You can do it three ways, from least to most control.
 
-**Simple**: decorate a function. The signature gives the argument types, the docstring is the tool description, and `run()` completes the loop: model picks the call, Needle executes your function, feeds the result back, and returns the model's final answer.
+**Simple**: decorate a function. The signature gives the argument types, the docstring is the tool description, and `run()` completes the loop: model picks the call, Needle executes your function, feeds the result back, and returns the final response with the executed tool results attached as `results`.
 
 ```python
 import needle
@@ -43,7 +43,8 @@ def get_weather(city: str):
     return {"city": city, "temp_c": 27, "sky": "clear"}
 
 agent = needle.Needle(tools=[get_weather])
-print(agent.run("what's it like in Lagos right now?"))
+print(agent.run("what's it like in Lagos right now?")["results"])
+# [{'city': 'Lagos', 'temp_c': 27, 'sky': 'clear'}]
 ```
 
 **Medium**: describe each argument and offer choices. Needle reads a Google-style `Args:` block for per-parameter descriptions; a default makes an argument optional; a `Literal` becomes a fixed set the model must choose from (it cannot emit anything else).
@@ -159,7 +160,7 @@ Needle solves every problem as a function call. The context declares what may be
 - A request no declared tool can serve is refused with the empty call `[]`. That is the whole contract for off-topic input; there is no free-text fallback.
 - Arguments contain only values evidenced by the input. An optional field with no evidence is omitted, not guessed; omission is the field-level `[]`.
 - `reasoning` is the model's short derivation of each argument from its source span (`'ten minutes' -> minutes 10`). It is generated unconstrained; only the call itself is grammar-constrained, so the JSON cannot be malformed while the derivation stays legible.
-- After you execute a call, pass the result back as the next `complete()`. The model continues from it, and later arguments may depend on earlier results: `search_for_contact` first, then `send_instant_message` with the returned `contact_id`. A final step may answer in plain text from the results: `"type": "respond"` with empty `function_calls`.
+- After you execute a call, pass the result back as the next `complete()`. The model continues from it, and later arguments may depend on earlier results: `search_for_contact` first, then `send_instant_message` with the returned `contact_id`. A final `"type": "respond"` with empty `function_calls` signals the loop is done; the answer is the tool results themselves, which `run()` collects on the final response as `results`. No free text is generated.
 - A session shares one toolset. Later turns are bare queries against the same tools; `reset()` rewinds the conversation and keeps the tools loaded.
 
 ## Extraction
