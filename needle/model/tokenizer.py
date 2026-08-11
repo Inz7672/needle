@@ -4,8 +4,6 @@ import sentencepiece as spm
 
 TOKENIZER_DIR = os.path.dirname(__file__)
 TOKENIZER_PREFIX = os.path.join(TOKENIZER_DIR, "tokenizer")
-NANO_TOKENIZER_PREFIX = os.path.join(TOKENIZER_DIR, "tokenizer_nano")
-NANO_VOCAB_SIZE = 4096
 
 PAD_ID = 0
 EOS_ID = 1
@@ -30,7 +28,7 @@ IM_START_ID, IM_END_ID, THINK_START_ID, THINK_END_ID = 4, 5, 6, 7
 (TOOLS_START_ID, TOOLS_END_ID, TOOL_CALL_START_ID, TOOL_CALL_END_ID,
  TOOL_RESULT_START_ID, TOOL_RESULT_END_ID) = range(8, 14)
 
-HF_REPO = "Cactus-Compute/needle-prod"
+HF_REPO = "Cactus-Compute/needle2"
 _HF_TOKENIZER_DIR = "tokenizer"
 
 
@@ -81,10 +79,6 @@ class SANTokenizer:
         return {"input_ids": all_ids}
 
 
-def _prefix_for(vocab_size):
-    return NANO_TOKENIZER_PREFIX if vocab_size == NANO_VOCAB_SIZE else TOKENIZER_PREFIX
-
-
 def _download_tokenizer_from_hf(prefix):
     from huggingface_hub import hf_hub_download
 
@@ -105,7 +99,7 @@ def _download_tokenizer_from_hf(prefix):
 
 
 def get_tokenizer(vocab_size=None):
-    prefix = _prefix_for(vocab_size) if vocab_size is not None else TOKENIZER_PREFIX
+    prefix = TOKENIZER_PREFIX
     model_path = prefix + ".model"
     if not os.path.exists(model_path):
         try:

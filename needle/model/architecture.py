@@ -33,9 +33,6 @@ PRESETS = {
 }
 PRESETS["base"] = dict(d_model=512, num_heads=8, num_kv_heads=4, num_layers=27,
                        engram_layers=(2, 15))
-PRESETS["nano"] = dict(d_model=256, num_heads=4, num_kv_heads=2, num_layers=20,
-                       vocab_size=4096, engram_layers=(2, 15), engram_slots=4096,
-                       batch_size=256)
 
 
 class ZCRMSNorm(nn.Module):
