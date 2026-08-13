@@ -47,7 +47,13 @@ Training is plain JAX, so it runs on any accelerator jax supports. On an NVIDIA 
 pip install "cactus-needle[gpu]"
 ```
 
-Apple GPUs are not currently supported: the jax metal plugin (0.1.1) fails on basic operations with current jax. Apple Silicon trains on CPU, which handles small LoRA runs comfortably now that padding fits the data.
+Apple GPUs train through the jax metal plugin, which does not work past jax 0.4.38, so the `metal` extra pins an older stack:
+
+```sh
+pip install "cactus-needle[metal]"
+```
+
+Needle detects the Metal backend and adapts automatically: manual attention, no rematerialisation, unrolled layer stack, and the `ENABLE_PJRT_COMPATIBILITY` variable the plugin requires is set for you. Measured on an M5 Max: 0.71 seconds per step against 2.90 on CPU at the same shape, about 4 times faster, with a one time compile of about 23 seconds. Training runs in float32 on every backend.
 
 ## Reading the loss
 

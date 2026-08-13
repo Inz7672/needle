@@ -10,13 +10,14 @@ dependencies = [
     "numpy",
     "jax",
     "jaxlib",
-    "flax>=0.12.8",
+    "flax>=0.10.2",
     "optax",
     "sentencepiece",
 ]
 
 [project.optional-dependencies]
 gpu = ["jax[cuda12]"]
+metal = ["jax==0.4.38", "jaxlib==0.4.38", "jax-metal", "flax==0.10.2", "optax==0.2.4"]
 test = ["pytest", "pydantic"]
 
 [project.scripts]

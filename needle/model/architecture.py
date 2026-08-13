@@ -78,6 +78,8 @@ class TransformerConfig:
     kv_bits: int = 8
     act_bits: int = 8
     weight_bits: str = ""
+    remat: bool = True
+    scan_unroll: int = 1
 
     def __init__(self, **kwargs):
         valid = {f.name for f in self.__dataclass_fields__.values()}
@@ -406,11 +408,12 @@ class Stack(nn.Module):
         x = jnp.broadcast_to(x[:, :, None, :], (*x.shape[:2], n, x.shape[-1]))
 
         ScanBlock = nn.scan(
-            nn.remat(_ScanBody),
+            nn.remat(_ScanBody) if cfg.remat else _ScanBody,
             variable_axes={"params": 0},
             split_rngs={"params": True},
             length=cfg.num_layers,
             in_axes=(0, nn.broadcast, nn.broadcast, nn.broadcast, nn.broadcast),
+            unroll=cfg.scan_unroll,
         )
         x, hidden = ScanBlock(
             cfg.num_heads, cfg.num_kv_heads, cfg.d_model, cfg.num_layers, dt,

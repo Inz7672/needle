@@ -2,8 +2,15 @@ import concurrent.futures
 import json
 import os
 import pickle
+import sys
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
+
+# The jax metal plugin refuses to load against a newer PJRT API without this;
+# it must be in the environment before jax initialises its backend, and this
+# module is imported before any jax import on every training path.
+if sys.platform == "darwin":
+    os.environ.setdefault("ENABLE_PJRT_COMPATIBILITY", "1")
 
 import numpy as np
 
@@ -303,7 +310,15 @@ def finetune_local(args, progress=None):
                                   workers=getattr(args, "workers", 8))
 
     params, config = load_checkpoint(base_path)
+    config.dtype = "float32"
+    params = jax.tree.map(lambda a: np.asarray(a).astype(np.float32), params)
+    backend = jax.default_backend().lower()
+    if backend == "metal":
+        config.flash = False
+        config.remat = False
+        config.scan_unroll = config.num_layers
     params = jax.device_put(params)
+    emit(f"  {'backend':<9} {backend}  float32")
     tokenizer = get_tokenizer(config.vocab_size)
     max_len = fit_max_len(data_path, tokenizer, args.max_len)
     seqs, masks = load_jsonl(data_path, tokenizer, max_len)
