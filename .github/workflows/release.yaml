@@ -1,13 +1,11 @@
 name: release
 
-# Weekly release train, Mondays at 09:00 America/Los_Angeles.
-# GitHub cron is UTC with no DST, so we fire at both UTC times that can map to
-# 09:00 Pacific (17:00 UTC during PST, 16:00 UTC during PDT) and let the gate job
-# keep only the run where it is actually 09:00 in Los Angeles. Also on-demand.
+# Daily release train at 09:00 America/Los_Angeles. A day where nothing landed
+# on main is a no-op: the release job sees HEAD already tagged and skips.
 on:
   schedule:
-    - cron: "0 16 * * 1"
-    - cron: "0 17 * * 1"
+    - cron: "0 16 * * *"
+    - cron: "0 17 * * *"
   workflow_dispatch: {}
 
 permissions:
@@ -51,21 +49,15 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write        # pushes the vX.Y.Z release tag
-      id-token: write        # required for PyPI Trusted Publishing (OIDC)
+      id-token: write        
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0     # tags are needed to derive the next version
+          fetch-depth: 0  
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - run: pip install build twine
-      # The version is not maintained in the repo: each release bumps the patch
-      # of the last v* tag (seeded from PyPI when no tags exist yet), patches it
-      # into this checkout only, and tags the released commit. If HEAD is
-      # already tagged, nothing landed since the last release and we skip.
-      # The engine wheel on HF is pinned separately (ENGINE_VERSION in
-      # needle/agent/fetch.py), so bumping here never breaks the lib fetch.
       - id: version
         run: |
           last=$(git tag --list 'v*' --sort=-v:refname | head -1)
@@ -86,8 +78,6 @@ jobs:
         run: python -m build
       - if: steps.version.outputs.skip != 'true'
         run: twine check dist/*
-      # skip-existing keeps a rerun idempotent if the tag push below ever fails
-      # after a successful upload.
       - if: steps.version.outputs.skip != 'true'
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
