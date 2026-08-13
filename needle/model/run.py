@@ -63,7 +63,7 @@ def load_checkpoint(path, return_run=False):
         from huggingface_hub import hf_hub_download
         from huggingface_hub.errors import EntryNotFoundError
         from .tokenizer import HF_REPO
-        print(f"{path} not found locally, downloading from HF...", flush=True)
+        print(f"  {'fetch':<9} {path}  downloading from Hugging Face", flush=True)
         rel = os.path.normpath(path).replace(os.sep, "/")
         names = []
         if not os.path.isabs(path):

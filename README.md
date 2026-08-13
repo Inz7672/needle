@@ -138,7 +138,8 @@ With a large catalogue, persist tool embeddings across runs with `needle.Needle(
   "reasoning": "'living room' -> room; 'dim' -> on true, brightness 30",
   "confidence": 0.94,
   "prefill_tps": 4300.0,
-  "decode_tps": 850.0
+  "decode_tps": 850.0,
+  "peak_ram_mb": 28.5
 }
 ```
 
@@ -184,7 +185,7 @@ receipt = [{
 }]
 agent = needle.Needle(tools=receipt)
 print(agent.complete("GreenMart receipt: oat milk 3.50, total 7.75 paid by visa")["function_calls"])
-# -> [{"name": "receipt", "arguments": {"merchant": "GreenMart", "total": 7.75}}]
+# -> [{'name': 'receipt', 'arguments': {'merchant': 'GreenMart', 'total': 7.75}}]
 ```
 
 Because it is the same operation, everything else applies unchanged: `confidence` gates the extraction, unsupported input returns the empty call `[]`, and fine-tuning uses the same data format (the record as the tool, the passage as the query).
@@ -232,11 +233,17 @@ Set `OPENROUTER_URL` to use an OpenAI-compatible gateway instead of the default 
 **2. LoRA fine-tune.** The base checkpoint auto-downloads from Hugging Face if you do not pass `--checkpoint`. `--generate N` first synthesizes N more examples from the tools in your data (also needs `OPENROUTER_API_KEY`).
 
 ```sh
-needle finetune data.jsonl --epochs 3
-needle finetune data.jsonl --epochs 3 --generate 300 --lora-rank 16 --lora-alpha 32
+needle finetune data.jsonl --epochs 10
+needle finetune data.jsonl --epochs 10 --generate 300 --lora-rank 16 --lora-alpha 32
 ```
 
-Key options: `--lora-rank` (default 16), `--lora-alpha` (32), `--lr` (1e-4), `--batch-size` (16), `--max-len` (1024), `--checkpoint <base.pkl>`, `--out <adapter.pkl>`. The adapter is written to `checkpoints/needle_lora.pkl`.
+Key options: `--epochs` (default 3), `--lora-rank` (16), `--lora-alpha` (32), `--lr` (1e-4), `--batch-size` (16), `--max-len` (1024), `--val-split` (0.1), `--checkpoint <base.pkl>`, `--out <adapter.pkl>`. The adapter is written to `checkpoints/needle_lora.pkl`. A validation loss prints each epoch from the held out split.
+
+Training is plain JAX and runs on any accelerator jax supports. On an NVIDIA machine install the CUDA build and the same command trains on the GPU:
+
+```sh
+pip install "cactus-needle[gpu]"
+```
 
 **3. Build a tuned `.cact`.** Merge the adapter into the base and quantize. The base auto-downloads if absent.
 

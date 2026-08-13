@@ -103,7 +103,7 @@ def get_tokenizer(vocab_size=None):
     model_path = prefix + ".model"
     if not os.path.exists(model_path):
         try:
-            print(f"Downloading {os.path.basename(prefix)} from HuggingFace...")
+            print(f"  {'fetch':<9} {os.path.basename(prefix)} tokenizer  downloading from Hugging Face")
             _download_tokenizer_from_hf(prefix)
         except Exception as e:
             raise RuntimeError(

@@ -123,14 +123,14 @@ def generate_dataset(tools, num_samples, model=DEFAULT_MODEL, batch_size=25,
                             rows.append(example)
                 except Exception as exc:
                     failed += 1
-                    print(f"  batch failed: {exc}", flush=True)
+                    print(f"  {'failed':<9} {exc}", flush=True)
                 if len(rows) < num_samples and submitted < max_submissions:
                     _submit()
             done_count = min(len(rows), num_samples)
             if progress:
                 progress(done_count, num_samples)
             else:
-                print(f"  generated {done_count}/{num_samples} (failed={failed})", flush=True)
+                print(f"  {'generated':<9} {done_count}/{num_samples}  failed {failed}", flush=True)
     finally:
         pool.shutdown(wait=False, cancel_futures=True)
 
@@ -160,7 +160,7 @@ def augment_jsonl(path, num_samples, model=DEFAULT_MODEL, batch_size=25, out_pat
     with open(out_path, "w") as handle:
         for example in examples + generated:
             handle.write(json.dumps(example) + "\n")
-    print(f"wrote {len(examples) + len(generated)} examples -> {out_path}")
+    print(f"  {'wrote':<9} {len(examples) + len(generated)} examples  {out_path}")
     return out_path
 
 
@@ -176,7 +176,7 @@ def generate_main(args):
         with open(out, "w") as handle:
             for row in rows:
                 handle.write(json.dumps(row) + "\n")
-        print(f"wrote {len(rows)} examples -> {out}")
+        print(f"  {'wrote':<9} {len(rows)} examples  {out}")
     elif args.augment:
         augment_jsonl(args.augment, args.num_samples, model=model,
                       batch_size=args.batch_size, out_path=args.output, workers=workers)
@@ -309,13 +309,13 @@ def finetune_local(args, progress=None):
     seqs, masks = load_jsonl(data_path, tokenizer, max_len)
     if len(seqs) == 0:
         raise SystemExit("no usable examples in " + data_path)
-    emit(f"training on {len(seqs)} examples, seq_len {max_len} (cap {args.max_len})")
+    emit(f"  {'data':<9} {len(seqs)} examples  seq_len {max_len}  cap {args.max_len}")
 
     model = SimpleAttentionNetwork(config)
     paths = lora_target_paths(params)
     scale = args.lora_alpha / args.lora_rank
     lora = init_lora(params, paths, args.lora_rank, jax.random.PRNGKey(0))
-    emit(f"LoRA rank {args.lora_rank} on {len(paths)} weight groups (compiling...)")
+    emit(f"  {'lora':<9} rank {args.lora_rank}  alpha {args.lora_alpha:g}  {len(paths)} weight groups")
 
     n_val = min(int(len(seqs) * getattr(args, "val_split", 0.1)), len(seqs) - 1)
     if n_val > 0:
@@ -323,17 +323,18 @@ def finetune_local(args, progress=None):
         seqs, masks = seqs[order], masks[order]
         val_seqs, val_masks = seqs[:n_val], masks[:n_val]
         seqs, masks = seqs[n_val:], masks[n_val:]
-        emit(f"holding out {n_val} examples for validation")
+        emit(f"  {'holdout':<9} {n_val} examples for validation")
 
     batch, count = args.batch_size, len(seqs)
     steps_per_epoch = -(-count // batch)
     total_steps = args.epochs * steps_per_epoch
+    warmup = min(max(1, total_steps // 20), total_steps - 1)
     schedule = optax.warmup_cosine_decay_schedule(
         init_value=0.0, peak_value=args.lr,
-        warmup_steps=min(max(1, total_steps // 20), total_steps - 1),
-        decay_steps=total_steps)
+        warmup_steps=warmup, decay_steps=total_steps)
     optimizer = optax.chain(optax.clip_by_global_norm(1.0), optax.adamw(schedule))
     opt_state = optimizer.init(lora)
+    emit(f"  {'schedule':<9} {total_steps} steps  warmup {warmup}  cosine decay  clip 1.0  (compiling...)")
 
     def loss_fn(lora, ids, mask):
         logits = model.apply({"params": merge_lora(params, lora, scale)}, ids)
@@ -361,14 +362,14 @@ def finetune_local(args, progress=None):
             last = float(loss)
             step_i += 1
             if step_i % every == 0:
-                emit(f"epoch {epoch + 1}/{args.epochs}  step {step_i}/{total_steps}  loss {last:.4f}")
+                emit(f"  {'step':<9} {step_i}/{total_steps}  loss {last:.4f}")
         if n_val > 0:
             val = np.mean([float(eval_step(lora, jnp.asarray(val_seqs[i:i + batch]),
                                            jnp.asarray(val_masks[i:i + batch])))
                            for i in range(0, n_val, batch)])
-            emit(f"epoch {epoch + 1}/{args.epochs}  loss {last:.4f}  val loss {val:.4f}")
+            emit(f"  {'epoch':<9} {epoch + 1}/{args.epochs}  loss {last:.4f}  val {val:.4f}")
         else:
-            emit(f"epoch {epoch + 1}/{args.epochs}  loss {last:.4f}")
+            emit(f"  {'epoch':<9} {epoch + 1}/{args.epochs}  loss {last:.4f}")
 
     os.makedirs(args.checkpoint_dir, exist_ok=True)
     out = args.out or os.path.join(args.checkpoint_dir, "needle_lora.pkl")
@@ -380,10 +381,9 @@ def finetune_local(args, progress=None):
             "base": base_path,
             "rank": args.lora_rank,
         }, handle)
-    print(f"saved LoRA adapter -> {out}")
-    print(f"merge + export with: needle build {base_path} --lora {out}")
-    print("note: finetuning does not update the confidence head; "
-          "confidence is reported as None when running tuned weights")
+    print(f"  {'adapter':<9} {out}")
+    print(f"  {'next':<9} needle build {base_path} --lora {out}")
+    print(f"  {'note':<9} confidence reports None with tuned weights; the head is not tuned")
 
 
 def build_main(args):
@@ -400,7 +400,7 @@ def build_main(args):
         lora = {tuple(key.split("/")): {"A": jnp.asarray(v["A"]), "B": jnp.asarray(v["B"])}
                 for key, v in adapter["lora"].items()}
         params = merge_lora(params, lora, adapter["scale"])
-        print(f"merged LoRA adapter {args.lora} into {len(lora)} weight groups")
+        print(f"  {'merged':<9} {len(lora)} weight groups  {args.lora}")
 
     bits = args.bits
     bits_map = None if bits else (getattr(config, "weight_bits", "") or None)
@@ -414,8 +414,8 @@ def build_main(args):
                         tokenizer=get_tokenizer(config.vocab_size),
                         kv_window=effective_kv_window(config))
     scheme = f"mixed[{bits_map}]" if bits_map else f"W{bits}"
-    print(f"exported {info['path']}  ({info['bytes'] / 1e6:.2f} MB, {info['tensors']} tensors, {scheme}A8)")
-    print(f"run it with: needle.Needle(weights={out!r}, tools=[...])")
+    print(f"  {'wrote':<9} {info['path']}  {info['bytes'] / 1e6:.2f} MB  {info['tensors']} tensors  {scheme}A8")
+    print(f"  {'next':<9} needle.Needle(weights={out!r}, tools=[...])")
 
     if args.upload:
         repo = os.environ.get("NEEDLE_HF_REPO")
@@ -426,4 +426,4 @@ def build_main(args):
         api.create_repo(repo, repo_type="model", exist_ok=True)
         api.upload_file(path_or_fileobj=out, path_in_repo=os.path.basename(out),
                         repo_id=repo, repo_type="model")
-        print(f"uploaded {os.path.basename(out)} -> {repo}")
+        print(f"  {'uploaded':<9} {os.path.basename(out)}  {repo}")

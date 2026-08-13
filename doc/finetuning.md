@@ -41,6 +41,14 @@ needle generate-data --augment data.jsonl --num-samples 1000
 
 The playground button labelled Finetune on these tools runs the same pipeline from the browser.
 
+Training is plain JAX, so it runs on any accelerator jax supports. On an NVIDIA machine install the CUDA build and the same command trains on the GPU, nothing else changes:
+
+```sh
+pip install "cactus-needle[gpu]"
+```
+
+Apple GPUs are not currently supported: the jax metal plugin (0.1.1) fails on basic operations with current jax. Apple Silicon trains on CPU, which handles small LoRA runs comfortably now that padding fits the data.
+
 ## Reading the loss
 
 The loss covers only the target: the reasoning line plus the JSON call. Much of the call is boilerplate the base model already predicts (the tool name, the braces, the field names), so training starts near 1.0 rather than near random. Judge a run by its trend, not its level.
