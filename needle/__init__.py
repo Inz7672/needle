@@ -64,7 +64,11 @@ class Needle:
             with open(self._weights, "rb") as handle:
                 blob = handle.read()
             if _lib().needle_load(blob, len(blob)) != 0:
-                raise RuntimeError(f"failed to load weights from {self._weights}")
+                raise RuntimeError(
+                    f"failed to load weights from {self._weights} - the .cact "
+                    f"format is tied to the engine version, so an archive "
+                    f"exported by an older cactus-needle will not load; re-run "
+                    f"`needle build` on your checkpoint with this package version")
             _active_weights = self._weights
         if _lib().needle_init(self._system, self._tools_json, self._tool_index_path) < 0:
             _active = None

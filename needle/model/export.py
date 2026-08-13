@@ -10,16 +10,21 @@ along). Tensors are LAYER-MAJOR: embedding, then all of layer 0's tensors, ...,
 then final norm - so the kernel's working set for one layer is contiguous.
 
 ================================ byte layout ================================
-All little-endian. A tiny header, then a NAMELESS tensor directory, then 64-byte
-aligned tensor blobs. The architecture geometry (dims, layer/engram/mHC layout)
-is NOT stored - the runtime bakes it in (canon_config in needle_model.cpp) - so
-neither the blob nor the shipped binary reveals the model structure; tensors are
-positional in the fixed canon order below.
+All little-endian. A fixed 120-byte header carrying the full architecture
+geometry, then a NAMELESS tensor directory, then 64-byte aligned tensor blobs.
+The runtime reads the geometry from the header, so one binary loads and runs
+any configuration of the (single) architecture; tensors are positional in the
+fixed canon order below.
 
-HEADER  (u32 tag, u32 num_tensors, u32 codebook_len, u32 kv_window, u32
-kv_bits; then codebook_len * f32 - the shared Lloyd-Max unit-sphere codebooks,
+HEADER  (30 u32-sized fields, rope_theta an f32, everything else u32):
+  tag, num_tensors, codebook_len, kv_window, kv_bits,
+  vocab, d_model, num_heads, num_kv_heads, num_layers, head_dim, max_seq_len,
+  hada_n, mhc_lanes, engram_slots, engram_sub_dim, num_engram_tables,
+  engram_conv_taps, engram_conv_dilation, num_engram_orders, engram_orders[4],
+  num_engram_sites, engram_sites[4], rope_theta;
+then codebook_len * f32 - the shared Lloyd-Max unit-sphere codebooks,
 cb2[4] | cb3[8] | cb4[16] concatenated, so mixed-precision blobs need one
-header). kv_window is the sliding-window width the model was trained with (0 =
+header. kv_window is the sliding-window width the model was trained with (0 =
 size it from the KV budget alone); kv_bits is the KV-cache width it was
 post-trained for (8 = int8, else 2/3/4). Both ride in the blob because a model
 quantized for one must be RUN at it - leaving either to a runtime flag silently
@@ -80,7 +85,7 @@ from .architecture import TransformerConfig
 
 HEAD_STAGES = ("conf-head", "tool-head")
 
-TAG = 0x05E12A82
+TAG = 0x05E12A83
 ALIGN = 64
 FP16, FP32, CQ, RAW = 1, 2, 3, 4
 CB_BITS = (2, 3, 4)
@@ -90,13 +95,28 @@ TK_NORMAL, TK_UNKNOWN, TK_CONTROL, TK_USER_DEFINED, TK_BYTE = 0, 1, 2, 3, 4
 _TK_HDR = "<IIIIIBBH"
 _TK_REC = "<fBH"
 
-_HDR_FMT = "<IIIII"
+_HDR_FMT = "<29If"
 _REC_FMT = "<BBHIIIIQQII"
 REC_SIZE = struct.calcsize(_REC_FMT)
 
 
 def _geometry(config):
-    head_dim = (getattr(config, "attn_dim", 0) or config.d_model) // config.num_heads
+    from .architecture import head_dims
+    qk_hd, v_hd = head_dims(config)
+    if qk_hd != v_hd:
+        raise NotImplementedError(
+            f"cact format stores a single head_dim; split attention dims "
+            f"(qk {qk_hd} / v {v_hd}) need a format bump and the matching "
+            f"engine port before export")
+    if getattr(config, "lexicon_layers", ()):
+        raise NotImplementedError(
+            "cact format has no lexicon section; lexicon runs are "
+            "research-only until the format and engine support it")
+    if getattr(config, "sliding_window", 0):
+        raise NotImplementedError(
+            "cact header carries a single kv_window; the local/global layer "
+            "pattern needs the format bump and engine port before export")
+    head_dim = qk_hd
     orders = tuple(getattr(config, "engram_orders", (2, 3)))
     heads = getattr(config, "engram_heads", 0) or max(1, config.d_model // (len(orders) * ENGRAM_SUB_DIM))
     sub_dim = config.d_model // (len(orders) * heads)
@@ -326,8 +346,17 @@ def _pack_cact(params, config, bits, group, tokenizer, kv_window=0):
         ts.append(_Tensor("tokenizer", RAW, (), _tokenizer_blob(tokenizer)))
     cb = np.concatenate([_cq_codebook_np(b, group) for b in CB_BITS]).astype(np.float32)
     kv_bits = int(getattr(config, "kv_bits", 8) or 8)
-    header = struct.pack(_HDR_FMT, TAG, len(ts), len(cb),
-                         int(kv_window or 0), kv_bits) + cb.tobytes()
+    head_dim, orders, heads, sub_dim, sites = _geometry(config)
+    hada_n = 1 << (config.d_model - 1).bit_length()
+    orders4 = (list(orders) + [0, 0, 0, 0])[:4]
+    sites4 = (list(sites) + [0, 0, 0, 0])[:4]
+    header = struct.pack(
+        _HDR_FMT, TAG, len(ts), len(cb), int(kv_window or 0), kv_bits,
+        config.vocab_size, config.d_model, config.num_heads, config.num_kv_heads,
+        config.num_layers, head_dim, config.max_seq_len, hada_n,
+        config.mhc_lanes, config.engram_slots, sub_dim, len(orders) * heads,
+        ENGRAM_CONV_TAPS, max(orders), len(orders), *orders4, len(sites), *sites4,
+        float(config.rope_theta)) + cb.tobytes()
 
     pos = len(header) + len(ts) * REC_SIZE
     for t in ts:
@@ -367,8 +396,19 @@ def write_export(params, config, path, bits=4, group=128, tokenizer=None,
 def read_export(path):
     with open(path, "rb") as f:
         raw = f.read()
-    tag, num_tensors, cb_n, kv_window, kv_bits = struct.unpack_from(_HDR_FMT, raw, 0)
+    hdr = struct.unpack_from(_HDR_FMT, raw, 0)
+    tag, num_tensors, cb_n, kv_window, kv_bits = hdr[:5]
     assert tag == TAG, "bad tag"
+    geometry = dict(zip(
+        ("vocab_size", "d_model", "num_heads", "num_kv_heads", "num_layers",
+         "head_dim", "max_seq_len", "hada_n", "mhc_lanes", "engram_slots",
+         "engram_sub_dim", "num_engram_tables", "engram_conv_taps",
+         "engram_conv_dilation"), hdr[5:19]))
+    num_orders, orders4 = hdr[19], hdr[20:24]
+    num_sites, sites4 = hdr[24], hdr[25:29]
+    geometry["engram_orders"] = tuple(orders4[:num_orders])
+    geometry["engram_layers"] = tuple(sites4[:num_sites])
+    geometry["rope_theta"] = hdr[29]
     off = struct.calcsize(_HDR_FMT)
     codebook = np.frombuffer(raw[off:off + cb_n * 4], np.float32).copy()
     off += cb_n * 4
@@ -394,7 +434,7 @@ def read_export(path):
         elif dtype == RAW:
             tensors.append(blob)
     return {"num_tensors": num_tensors, "codebook": codebook,
-            "kv_window": kv_window, "kv_bits": kv_bits}, tensors
+            "kv_window": kv_window, "kv_bits": kv_bits, **geometry}, tensors
 
 
 _SP_META_SPACE = "▁"

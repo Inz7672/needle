@@ -11,6 +11,14 @@ from . import quantize as _quantize
 from .quantize import fake_quant_act
 
 
+def head_dims(config):
+    legacy = (getattr(config, "attn_dim", 0) or config.d_model) // config.num_heads
+    qk = getattr(config, "qk_head_dim", 0) or legacy
+    v = getattr(config, "v_head_dim", 0) or legacy
+    return qk, v
+
+
+
 def _aq(x, quant):
     if quant is False:
         return x
