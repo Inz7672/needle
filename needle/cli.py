@@ -120,6 +120,8 @@ def main():
     p.add_argument("--lora-rank", type=int, default=16, help="LoRA adapter rank (default: 16)")
     p.add_argument("--lora-alpha", type=float, default=32.0, help="LoRA scaling alpha (default: 32)")
     p.add_argument("--max-len", type=int, default=1024, help="Max training sequence length")
+    p.add_argument("--val-split", type=float, default=0.1,
+                   help="Fraction of examples held out for validation (0 disables)")
     p.add_argument("--generate", type=int, default=0,
                    help="Generate N extra examples via OpenRouter before training (0 = off)")
     p.add_argument("--model", type=str, default="deepseek/deepseek-v4-flash",

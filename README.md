@@ -207,9 +207,11 @@ Five or fewer declared tools render directly. Above that, retrieval engages: at 
 
 The `confidence` field is the minimum of two signals: a calibrated post-hoc head that scores the full prompt plus the call the model just produced, and the decoding probability of the call tokens. A call is accepted only when both agree, so the failure mode is escalation, not wrong execution. The contract: pick a threshold for your product, act at or above it, re-ask or route to a bigger model below it. Off-topic requests return the empty call `[]`.
 
+Calibration holds for the base model only. Fine-tuning does not update the head, so an agent running tuned weights reports `confidence` as `None` and warns once at construction.
+
 ## Fine-tuning
 
-Needle fine-tunes with LoRA on the frozen base and merges the adapter at export, so a run is cheap and the tuned model is still a single `.cact` that runs on the same engine. The workflow is: (optionally) synthesize data, LoRA fine-tune, then build a tuned `.cact`.
+Needle fine-tunes with LoRA on the frozen base and merges the adapter at export, so a run is cheap and the tuned model is still a single `.cact` that runs on the same engine. The workflow is: (optionally) synthesize data, LoRA fine-tune, then build a tuned `.cact`. See [doc/finetuning.md](doc/finetuning.md) for dataset sizing, reading the loss curve, and troubleshooting.
 
 **Data format.** A JSONL file, one example per line. `reasoning` is optional; an off-topic example has `answers: []`.
 

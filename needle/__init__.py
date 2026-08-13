@@ -2,6 +2,7 @@ import ctypes
 import json
 import os
 import sys
+import warnings
 
 from .agent.tools import Field, build_schema, pydantic_schema, tool, _is_pydantic_model
 
@@ -49,6 +50,10 @@ class Needle:
     def __init__(self, tools=None, system=None, weights=None, tool_index_path=None, buffer_size=65536):
         self._functions = {}
         self._weights = weights
+        if weights:
+            warnings.warn("finetuning does not update the confidence head, so scores are "
+                          "uncalibrated for tuned weights; this agent reports confidence as None",
+                          stacklevel=2)
         self._system = (system or "").encode("utf-8")
         tools_json = tools if isinstance(tools, str) else json.dumps(self._resolve(tools))
         self._tools_json = tools_json.encode("utf-8")
@@ -94,7 +99,10 @@ class Needle:
         self._bind()
         _lib().needle_complete(text.encode("utf-8"), int(max_new_tokens),
                                self._buffer, len(self._buffer))
-        return json.loads(self._buffer.value.decode("utf-8"))
+        response = json.loads(self._buffer.value.decode("utf-8"))
+        if self._weights:
+            response["confidence"] = None
+        return response
 
     def run(self, query, max_steps=8, max_new_tokens=256):
         response = self.complete(query, max_new_tokens)

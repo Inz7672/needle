@@ -52,6 +52,17 @@ def test_encode_loss_mask_targets_only(tok):
     assert sum(1 for m in mask if m == 1.0) == len(tok.encode(target)) + 1
 
 
+def test_fit_max_len_buckets(tok, tmp_path):
+    from needle.model.finetune import fit_max_len
+
+    path = tmp_path / "data.jsonl"
+    with open(path, "w") as handle:
+        handle.write(json.dumps({"tools": [], "query": "short", "answers": []}) + "\n")
+
+    assert fit_max_len(str(path), tok, 1024) == 128
+    assert fit_max_len(str(path), tok, 64) == 64
+
+
 def test_load_jsonl_shapes_and_skips_invalid(tok, tmp_path):
     from needle.model.finetune import load_jsonl
 

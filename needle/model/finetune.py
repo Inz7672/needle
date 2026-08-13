@@ -210,6 +210,24 @@ def _encode(tokenizer, example, max_len):
     return ids + [PAD_ID] * pad, mask + [0.0] * pad
 
 
+def fit_max_len(path, tokenizer, cap):
+    longest = 0
+    with open(path) as handle:
+        for line in handle:
+            line = line.strip()
+            if not line:
+                continue
+            example = json.loads(line)
+            if "query" not in example:
+                continue
+            prompt, target = render_example(example)
+            longest = max(longest, len(tokenizer.encode(prompt)) + len(tokenizer.encode(target)) + 2)
+    bucket = 128
+    while bucket < min(longest, cap):
+        bucket *= 2
+    return min(bucket, cap)
+
+
 def load_jsonl(path, tokenizer, max_len):
     seqs, masks = [], []
     with open(path) as handle:
@@ -287,10 +305,11 @@ def finetune_local(args, progress=None):
     params, config = load_checkpoint(base_path)
     params = jax.device_put(params)
     tokenizer = get_tokenizer(config.vocab_size)
-    seqs, masks = load_jsonl(data_path, tokenizer, args.max_len)
+    max_len = fit_max_len(data_path, tokenizer, args.max_len)
+    seqs, masks = load_jsonl(data_path, tokenizer, max_len)
     if len(seqs) == 0:
         raise SystemExit("no usable examples in " + data_path)
-    emit(f"training on {len(seqs)} examples, seq_len {args.max_len}")
+    emit(f"training on {len(seqs)} examples, seq_len {max_len} (cap {args.max_len})")
 
     model = SimpleAttentionNetwork(config)
     paths = lora_target_paths(params)
@@ -298,7 +317,22 @@ def finetune_local(args, progress=None):
     lora = init_lora(params, paths, args.lora_rank, jax.random.PRNGKey(0))
     emit(f"LoRA rank {args.lora_rank} on {len(paths)} weight groups (compiling...)")
 
-    optimizer = optax.adamw(args.lr)
+    n_val = min(int(len(seqs) * getattr(args, "val_split", 0.1)), len(seqs) - 1)
+    if n_val > 0:
+        order = np.random.default_rng(0).permutation(len(seqs))
+        seqs, masks = seqs[order], masks[order]
+        val_seqs, val_masks = seqs[:n_val], masks[:n_val]
+        seqs, masks = seqs[n_val:], masks[n_val:]
+        emit(f"holding out {n_val} examples for validation")
+
+    batch, count = args.batch_size, len(seqs)
+    steps_per_epoch = -(-count // batch)
+    total_steps = args.epochs * steps_per_epoch
+    schedule = optax.warmup_cosine_decay_schedule(
+        init_value=0.0, peak_value=args.lr,
+        warmup_steps=min(max(1, total_steps // 20), total_steps - 1),
+        decay_steps=total_steps)
+    optimizer = optax.chain(optax.clip_by_global_norm(1.0), optax.adamw(schedule))
     opt_state = optimizer.init(lora)
 
     def loss_fn(lora, ids, mask):
@@ -313,9 +347,8 @@ def finetune_local(args, progress=None):
         updates, opt_state = optimizer.update(grads, opt_state, lora)
         return optax.apply_updates(lora, updates), opt_state, loss
 
-    batch, count = args.batch_size, len(seqs)
-    steps_per_epoch = -(-count // batch)
-    total_steps = args.epochs * steps_per_epoch
+    eval_step = jax.jit(loss_fn)
+
     every = max(1, total_steps // 50)
     step_i = 0
     for epoch in range(args.epochs):
@@ -329,7 +362,13 @@ def finetune_local(args, progress=None):
             step_i += 1
             if step_i % every == 0:
                 emit(f"epoch {epoch + 1}/{args.epochs}  step {step_i}/{total_steps}  loss {last:.4f}")
-        emit(f"epoch {epoch + 1}/{args.epochs}  loss {last:.4f}")
+        if n_val > 0:
+            val = np.mean([float(eval_step(lora, jnp.asarray(val_seqs[i:i + batch]),
+                                           jnp.asarray(val_masks[i:i + batch])))
+                           for i in range(0, n_val, batch)])
+            emit(f"epoch {epoch + 1}/{args.epochs}  loss {last:.4f}  val loss {val:.4f}")
+        else:
+            emit(f"epoch {epoch + 1}/{args.epochs}  loss {last:.4f}")
 
     os.makedirs(args.checkpoint_dir, exist_ok=True)
     out = args.out or os.path.join(args.checkpoint_dir, "needle_lora.pkl")
@@ -343,6 +382,8 @@ def finetune_local(args, progress=None):
         }, handle)
     print(f"saved LoRA adapter -> {out}")
     print(f"merge + export with: needle build {base_path} --lora {out}")
+    print("note: finetuning does not update the confidence head; "
+          "confidence is reported as None when running tuned weights")
 
 
 def build_main(args):
