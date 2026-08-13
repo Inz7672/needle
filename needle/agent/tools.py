@@ -1,10 +1,15 @@
 import enum
 import inspect
 import re
+import types
 import typing
 
 _JSON_TYPES = {str: "string", int: "integer", float: "number", bool: "boolean",
                list: "array", dict: "object"}
+
+# PEP 604 unions (X | Y) have origin types.UnionType, which only exists on
+# Python 3.10+; on 3.9 the getattr falls back to typing.Union harmlessly.
+_UNION_ORIGINS = (typing.Union, getattr(types, "UnionType", typing.Union))
 
 _MISSING = object()
 
@@ -44,7 +49,7 @@ class Field:
 
 
 def _is_optional(annotation):
-    return (typing.get_origin(annotation) is typing.Union
+    return (typing.get_origin(annotation) in _UNION_ORIGINS
             and type(None) in typing.get_args(annotation))
 
 
@@ -69,7 +74,7 @@ def _json_type(annotation):
         return {"type": "array", "items": _json_type(args[0]) if args else {"type": "string"}}
     if origin in (dict, typing.Dict):
         return {"type": "object"}
-    if origin is typing.Union:
+    if origin in _UNION_ORIGINS:
         rest = [a for a in typing.get_args(annotation) if a is not type(None)]
         if rest:
             return _json_type(rest[0])

@@ -1,7 +1,13 @@
+import sys
 import typing
+
+import pytest
 
 from needle import tool, Field
 from needle.agent.tools import build_schema, pydantic_schema, _is_pydantic_model
+
+pep604 = pytest.mark.skipif(sys.version_info < (3, 10),
+                            reason="PEP 604 unions need Python 3.10+")
 
 
 def test_basic_schema_types_and_required():
@@ -50,6 +56,31 @@ def test_optional_annotation_not_required():
 
     schema = build_schema(f)
     assert schema["parameters"]["required"] == ["a"]
+
+
+@pep604
+def test_pep604_none_union_not_required():
+    def f(a: str, b: str | None = None, c: int | None = None, d: str | int | None = None):
+        pass
+
+    schema = build_schema(f)
+    assert schema["parameters"]["required"] == ["a"]
+    props = schema["parameters"]["properties"]
+    assert props["b"] == {"type": "string"}
+    assert props["c"] == {"type": "integer"}
+    assert props["d"] == {"type": "string"}
+
+
+@pep604
+def test_pep604_union_matches_typing_union():
+    def f(value: int | str):
+        pass
+
+    def g(value: typing.Union[int, str]):
+        pass
+
+    assert build_schema(f)["parameters"] == build_schema(g)["parameters"]
+    assert build_schema(f)["parameters"]["properties"]["value"] == {"type": "integer"}
 
 
 def test_field_constraints_and_docstring_args():
